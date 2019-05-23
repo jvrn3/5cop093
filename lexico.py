@@ -1,54 +1,20 @@
 import string
 import sys
 import re
-import time
-
-tokens_prof = {
-    2: 'SIMBOLO_ESPECIAL',
-    3: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    4: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    5: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    6: 'IDENTIFICADOR',
-    7: 'NUMERO_POSITIVO',
-    8: 'NUMERO_REAL_POSITIVO',
-    9: 'NUMERO_NEGATIVO',
-    10: 'NUMERO_REAL_NEGATIVO',
-    11: 'NUMERO_INTEIRO',
-    12: 'NUMERO_REAL',
-    13: 'SIMBOLO_ESPECIAL',
-    14: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    15: 'SIMBOLO_ESPECIAL',
-    16: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    17: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    18: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    19: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    20: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    21: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    22: 'SIMBOLO_ESPECIAL',
-    23: 'SIMBOLO_ESPECIAL',
-    24: 'SIMBOLO_ESPECIAL',
-    25: 'SIMBOLO_ESPECIAL',
-    26: 'SIMBOLO_ESPECIAL',
-    27: 'SIMBOLO_ESPECIAL',
-    28: 'SIMBOLO_ESPECIAL',
-    29: 'SIMBOLO_ESPECIAL',
-    30: 'SIMBOLO_ESPECIAL_COMPOSTO',
-    31: 'SIMBOLO_ESPECIAL'
-}
 
 tokens = {
     2: 'LPAR',
     3: 'token_OPENCOMMENT',
     4: 'op_MULT',
     5: 'token_CLOSECOMMENT',
-    7: 'token_INT',
+    7: 'NUMBER',  # token_int
     8: 'token_REAL',
-    9: 'token_INT',
+    9: 'NUMBER',  # token_INT
     10: 'token_REAL',
-    11: 'token_INT',
+    11: 'NUMBER',
     12: 'token_REAL',
     13: 'DOT',
-    14: 'DOT_DOT',
+    14: 'DOTDOT',
     15: 'COLON',
     16: 'token_ASSIGN',
     17: 'op_LT',
@@ -112,6 +78,16 @@ class HashTrabalho:
         return False
 
 
+class Token:
+    def __init__(self, state, tok, description):
+        self.state = state
+        self.tok = tok
+        self.description = description
+
+    def __str__(self):
+        return "<{0}, {1}>".format(self.description, self.tok)
+
+
 class Automata:
     # número de estados que o autômato tem
     """
@@ -122,9 +98,13 @@ class Automata:
     delta = []
     F = []
 
-    # O autômato possui N estados, as funções delta e os estados finais
-
+    # O autômato possui N estados, as funções delta de mudança de estado e os
+    # estados finais
     def __init__(self, n_states):
+        # Posição atual para obter o token
+        self.start = 0
+        self.linha = 1
+
         self.n_states = n_states
         self.delta = []
         self.F = []
@@ -135,6 +115,15 @@ class Automata:
             for j in range(self.symbols):
                 line.append(-1)
             self.delta.append(line)
+
+        self.set_transitions()
+
+        # set final states
+        for i in range(31):
+            self.F.append(i)
+
+    # Definição de todas as transições
+    def set_transitions(self):
 
         # A-Za-z IDS AND KEYWORDS
         for letter in string.ascii_letters:
@@ -155,7 +144,6 @@ class Automata:
             self.set_transition(11, number, 11)
             self.set_transition(12, number, 12)
 
-        # Parenteses ou abre comentário
         self.set_transition(1, '(', 2)
         self.set_transition(2, '*', 3)
 
@@ -189,11 +177,6 @@ class Automata:
             ['{', '}', '[', ']', ',', ';', '=', ')', '\"', '\''], 22):
             self.set_transition(1, special, i)
 
-        # set final states
-        # 1 a 31
-        for i in range(31):
-            self.F.append(i)
-
     def set_transition(self, state, symbol, next_state):
         self.delta[state - 1][ord(str(symbol))] = next_state
 
@@ -202,6 +185,292 @@ class Automata:
 
     def get_transition(self, state, symbol):
         return self.delta[state - 1][ord(str(symbol))]
+
+    def get_token_state(self, state):
+        return tokens[state]
+
+    def get_token(self, inpt):
+        token = None
+        curr_state = 1
+        last_final_state = -1
+
+        last_final_pos = 0
+        # start = 0
+
+        pos = self.start
+
+        while pos < len(inpt):
+            symbol = inpt[pos]
+            curr_state = self.get_transition(curr_state, symbol)
+
+            if self.is_final(curr_state):
+                last_final_state = curr_state
+                last_final_pos = pos
+
+            # Leu algum estado e foi para o inválido
+            # Por exemplo, se no primeiro estado ele leu um número, então o
+            # proximo não pode ser uma letra. Caso seja, o curr_state
+            # retornará -1
+            # Dead state
+            if curr_state == -1:
+
+                # Chegou ao final. Printar
+                if last_final_state is not -1:
+                    token_symbol = inpt[self.start:last_final_pos + 1]
+
+                    # Se não for um id ou keyword
+                    if last_final_state != 6:
+                        token_name = self.get_token_state(last_final_state)
+
+                    else:
+
+                        # Verifica se eh uma keyword
+                        if token_symbol.lower() in keywords:
+                            token_name = "keyword"
+                        else:
+                            token_name = "ID"
+
+                    token = Token(last_final_state, token_symbol, token_name)
+                    self.start = last_final_pos + 1
+                    break
+                else:
+
+                    # Atualiza o valor da linha
+                    if symbol == '\n':
+                        self.linha += 1
+
+                    # Caso de erro
+                    if symbol not in [' ', '\n', '\0', '\t']:
+
+                        token_name = "Error: "
+                        token_symbol = inpt[self.start]
+                        token = Token(last_final_state, token_name,
+                                      token_symbol)
+                        break
+
+                    self.start += 1
+                    curr_state = 1
+                    last_final_state = -1
+
+            pos += 1
+        if token is not None:
+            if token.description == "keyword":
+                return token.tok.upper()
+            else:
+                return token.description.upper()
+        else:
+            return None
+
+
+class Parser:
+    def __init__(self, automato, inpt):
+        self.automato = automato
+        self.input = inpt
+        self.current = self.automato.get_token(self.input)
+
+    def advance(self):
+        # pega o proximo token
+        self.current = self.automato.get_token(self.input)
+        print("Advance ", self.current)
+
+    def eat(self, token):
+        #
+        if self.current is not None:
+            print("Current", self.current, "Eats", token)
+            if self.current == token:
+                self.advance()
+            else:
+                self.error(self.current)
+        else:
+            if token is not None:
+                self.error(token)
+
+    # Productions
+    def PROGRAM(self):
+        """ 
+        program <identificador> (<lista de identificadores>);
+        <bloco>.
+
+        """
+        if self.current == "PROGRAM":
+
+            self.eat("PROGRAM")
+            self.eat("ID")
+            self.eat("LPAR")
+            self.eat("ID")
+            self.BLOCOID()
+            self.eat("RPAR")
+            self.eat("SEMICOLON")
+            self.BLOCO()
+            self.eat("DOT")
+            print("Funfou")
+
+    def BLOCO(self):
+        """
+        <bloco> ::= [<parte das declaraçõe de rótulos>]
+                    [<parte de definições de tipos>]
+                    [<parte de declarações de variáveis>]
+                    [<parte de declarações de sub-rotinas>]
+                    <comando composto>
+        """
+        # Declaração de variáveis
+        if self.current == "VAR":
+            # var id : tipo;
+            self.eat("VAR")  # VAR
+            self.eat("ID")  # ID
+            self.BLOCOID()  # ,ID, ID, ...,
+            self.eat("COLON")  # :
+            self.TIPO()
+            self.eat("SEMICOLON")  # ;
+            self.BLOCOVAR()
+            self.BLOCO()
+
+        # Rotulos
+        elif self.current == "LABEL":
+            self.eat("LABEL")
+            self.eat("NUMBER")
+            self.BLOCOLABEL()
+            self.eat("SEMICOLON")
+        # Declaração de tipos: type id = tipo;
+        elif self.current == "TYPE":
+            self.eat("TYPE")
+            self.eat("ID")
+            self.eat("ASSIGN")
+            self.TIPO()
+            self.eat("SEMICOLON")
+            self.BLOCOTIPO()
+        elif self.current == "PROCEDURE":  # procedure id (var x1 : tipo)
+            self.eat("PROCEDURE")
+            self.eat("ID")
+            if self.current == "SEMICOLON":
+                self.eat("SEMICOLON")
+            elif self.current == "LPAR":
+                self.eat("LPAR")
+
+                # x1, x2 ... : type
+                if self.current == "ID":
+                    self.eat("ID")
+                    self.eat("COLON")
+                    self.TIPO()
+                    
+                # VAR x1, x2 ... : type
+                elif self.current == "VAR":
+                    self.eat("VAR")
+                    self.eat("ID")
+                    self.eat("COLON")
+                    self.TIPO()
+
+                self.BLOCOPROCEDURE()
+                self.eat("RPAR")
+                self.eat("SEMICOLON")
+                self.BLOCO()
+        elif self.current == "FUNCTION":
+            self.eat("FUNCTION")
+        else:
+            self.error(self.current)
+
+
+    def BLOCOID(self):
+        """
+        {, <identificador>}
+        """
+        if self.current == "COMMA":  # ,
+            self.eat("COMMA")  # eats ,
+            self.eat("ID")  # ID
+            self.BLOCOID()  # RECURSION OVER ids
+        elif self.current == "COLON":
+            pass
+
+    def BLOCOVAR(self):
+        """
+        {<lista de identificadores> : <tipo>}
+        """
+        if self.current == "ID":
+            self.eat("ID")
+            self.BLOCOID()
+            self.eat("COLON")
+            self.TIPO()
+            self.eat("SEMICOLON")
+            self.BLOCOVAR()
+
+    def TIPO(self):
+        """
+        <identificador> | array [<indice> {, <indice}] of <tipo>
+        """
+        if self.current == "ID":
+            self.eat("ID")
+        elif self.current == "ARRAY":
+            self.eat("ARRAY")  # Array
+            self.eat("LBRACKET")  # [
+            self.eat("NUMBER")  # n
+            self.eat("DOTDOT")
+            self.eat("NUMBER")
+            self.BLOCOINDEX()  # , m
+            self.eat("RBRACKET")  # ]
+            self.eat("OF")  # of
+            self.TIPO()  # Integer, for example
+
+    def BLOCOINDEX(self):
+        """
+        {, <indice>}
+        """
+        if self.current == "COMMA":
+            self.eat("COMMA")
+            self.BLOCOINDEX()
+            self.eat("NUMBER")
+            self.eat("DOTDOT")
+            self.eat("NUMBER")
+            self.BLOCOINDEX()
+
+    def BLOCOLABEL(self):
+
+        """
+        {, <numero> };
+        """
+        if self.current == "COMMA":
+            self.eat("COMMA")
+            self.eat("NUMBER")
+            self.BLOCOLABEL()
+
+    def BLOCOTIPO(self):
+        """
+        <identificador> = <tipo>; ...
+        """
+        if self.current == "ID":
+            self.eat("ID")
+            self.eat("ASSIGN")
+            self.TIPO()
+            self.eat("SEMICOLON")
+            self.BLOCOTIPO()
+
+    def BLOCOPROCEDURE(self):
+        if self.current == "SEMICOLON":
+            self.eat("SEMICOLON")
+            if self.current == "ID":
+                self.eat("ID")
+                self.eat("COLON")
+                self.TIPO()
+                self.BLOCOPROCEDURE()
+
+                # VAR x1, x2 ... : type
+            elif self.current == "VAR":
+                self.eat("VAR")
+                self.eat("ID")
+                self.eat("COLON")
+                self.TIPO()
+                self.BLOCOPROCEDURE()
+            elif self.current == "RPAR":
+                pass
+            else:
+                self.error(self.current)
+
+
+    def start_parsing(self):
+        self.PROGRAM()
+
+    def error(self, error):
+        print("Syntatic error at line\n ERROR HANDLING SHOULD BE DONE ")
+        exit(-1)
 
 
 if __name__ == '__main__':
@@ -223,74 +492,5 @@ if __name__ == '__main__':
 
     print("File name ", sys.argv[1])
 
-    curr_state = 1
-    last_final = -1
-
-    last_final_pos = 0
-    start = 0
-    pos = 0
-
-    linha = 1
-    with open("out_file", "w") as out_file:
-        while pos < len(inpt):
-            symbol = inpt[pos]
-            curr_state = automato.get_transition(curr_state, symbol)
-
-            if automato.is_final(curr_state):
-                last_final = curr_state
-                last_final_pos = pos
-
-            # Leu algum estado e foi para o inválido
-            # Por exemplo, se no primeiro estado ele leu um número, então o
-            # proximo não pode ser uma letra. Caso seja, o curr_state
-            # retornará -1
-            if curr_state == -1:
-                # Ultimo estado final
-                if last_final is not -1:
-                    # Se não for um id ou keyword
-                    if last_final != 6:
-                        # Printa o token indicando o estado, e a palavra lida
-                        # Por exemplo, <Símbolo especial, : >
-                        out_file.write("<" + tokens_prof[last_final] + ", " +
-                                       inpt[start:last_final_pos + 1] + " >\n")
-
-                        print("< " + tokens[last_final] + ", " +
-                              inpt[start:last_final_pos + 1] + " >")
-                    else:
-                        if inpt[start:last_final_pos + 1].lower() in keywords:
-                            out_file.write("<keyword, " +
-                                           inpt[start:last_final_pos + 1] +
-                                           " >\n")
-
-                            print("<keyword, " +
-                                  inpt[start:last_final_pos + 1] + " >")
-                        else:
-                            print("< identifier,",
-                                  inpt[start:last_final_pos + 1] + " >")
-                            out_file.write("< identifier, " +
-                                           inpt[start:last_final_pos + 1] +
-                                           " >\n")
-
-                    start = last_final_pos + 1
-                else:
-                    if symbol == '\n':
-                        linha += 1
-                    if symbol not in [' ', '\n', '\0', '\t']:
-                        out_file.write("Erro na linha {0}".format(linha) +
-                                       "=> caracter invalido:" + inpt[start] +
-                                       "\n")
-
-                        print("Erro na linha", linha, "=> caracter invalido:",
-                              inpt[start])
-                        print("...Parando programa...")
-                        time.sleep(1)
-
-                        break
-
-                    start += 1
-
-                pos = start - 1
-                curr_state = 1
-                last_final = -1
-
-            pos += 1
+    parser = Parser(automato, inpt)
+    parser.start_parsing()
